@@ -130,10 +130,8 @@ class AxonDataCollector:
             'start': date,
             'end': date,
             'columns': 'day,application,package_name,platform,country,device_type,'
-                      'ad_format,max_ad_unit_id,max_placement,network,network_placement,'
-                      'impressions,estimated_revenue,ecpm,requests',
-            'format': 'csv',
-            'not_zero': 1
+                    'ad_format,impressions,estimated_revenue,ecpm',  # 간소화
+            'format': 'csv'
         }
         
         try:

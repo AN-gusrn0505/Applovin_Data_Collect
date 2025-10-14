@@ -125,8 +125,6 @@ class AxonDataCollector:
         print(f"  📊 Aggregated Revenue 데이터 조회")
         
         url = "https://r.applovin.com/maxReport"
-        
-        # requests 제거 + max_placement도 제거 (간소화)
         params = {
             'api_key': self.api_key,
             'start': date,
@@ -143,12 +141,14 @@ class AxonDataCollector:
             
             df = pd.read_csv(StringIO(response.text))
             
-            # 디버깅
             print(f"    📋 API 응답 컬럼: {df.columns.tolist()}")
             
             if len(df) == 0:
                 print(f"    ⚠️ 데이터 없음")
                 return None
+            
+            # 🔥 중요: 컬럼명 소문자 변환
+            df.columns = df.columns.str.lower()
             
             # 컬럼 rename
             df.rename(columns={'day': 'report_date'}, inplace=True)
@@ -166,8 +166,6 @@ class AxonDataCollector:
             
         except requests.exceptions.HTTPError as e:
             print(f"    ❌ HTTP 에러: {e}")
-            if hasattr(e.response, 'text'):
-                print(f"    📝 응답: {e.response.text[:200]}")
             return None
         except Exception as e:
             print(f"    ❌ 에러: {str(e)}")

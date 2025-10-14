@@ -119,20 +119,22 @@ class AxonDataCollector:
         except Exception as e:
             print(f"    ❌ 에러: {str(e)}")
             return None
-    
-
+ 
     def fetch_aggregated_revenue(self, date):
         """Revenue Reporting API 호출"""
         print(f"  📊 Aggregated Revenue 데이터 조회")
         
         url = "https://r.applovin.com/maxReport"
+        
+        # requests 제거 + max_placement도 제거 (간소화)
         params = {
             'api_key': self.api_key,
             'start': date,
             'end': date,
             'columns': 'day,application,package_name,platform,country,device_type,'
                     'ad_format,impressions,estimated_revenue,ecpm',
-            'format': 'csv'
+            'format': 'csv',
+            'not_zero': 1
         }
         
         try:
@@ -141,40 +143,36 @@ class AxonDataCollector:
             
             df = pd.read_csv(StringIO(response.text))
             
-            # 디버깅: 실제 컬럼명 출력
+            # 디버깅
             print(f"    📋 API 응답 컬럼: {df.columns.tolist()}")
             
             if len(df) == 0:
                 print(f"    ⚠️ 데이터 없음")
                 return None
             
-            # 컬럼명 확인 후 rename
-            if 'day' in df.columns:
-                df.rename(columns={'day': 'report_date'}, inplace=True)
-            elif 'date' in df.columns:
-                df.rename(columns={'date': 'report_date'}, inplace=True)
-            
+            # 컬럼 rename
+            df.rename(columns={'day': 'report_date'}, inplace=True)
             df['report_hour'] = None
             df['loaded_at'] = datetime.utcnow()
             
-            # 안전한 타입 변환
-            if 'report_date' in df.columns:
-                df['report_date'] = pd.to_datetime(df['report_date']).dt.date
-            if 'impressions' in df.columns:
-                df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce').fillna(0).astype(int)
-            if 'estimated_revenue' in df.columns:
-                df['estimated_revenue'] = pd.to_numeric(df['estimated_revenue'], errors='coerce').fillna(0).astype(float)
-            if 'ecpm' in df.columns:
-                df['ecpm'] = pd.to_numeric(df['ecpm'], errors='coerce').fillna(0).astype(float)
+            # 타입 변환
+            df['report_date'] = pd.to_datetime(df['report_date']).dt.date
+            df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce').fillna(0).astype(int)
+            df['estimated_revenue'] = pd.to_numeric(df['estimated_revenue'], errors='coerce').fillna(0).astype(float)
+            df['ecpm'] = pd.to_numeric(df['ecpm'], errors='coerce').fillna(0).astype(float)
             
             print(f"    ✅ {len(df)}개 집계 레코드")
             return df
             
+        except requests.exceptions.HTTPError as e:
+            print(f"    ❌ HTTP 에러: {e}")
+            if hasattr(e.response, 'text'):
+                print(f"    📝 응답: {e.response.text[:200]}")
+            return None
         except Exception as e:
             print(f"    ❌ 에러: {str(e)}")
-            import traceback
-            print(f"    📝 상세: {traceback.format_exc()}")
             return None
+
 
     def load_to_bigquery(self, df, table_name, date, force_update=False):
         """

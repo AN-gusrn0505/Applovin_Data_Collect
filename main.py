@@ -119,7 +119,8 @@ class AxonDataCollector:
         except Exception as e:
             print(f"    ❌ 에러: {str(e)}")
             return None
- 
+
+
     def fetch_aggregated_revenue(self, date):
         """Revenue Reporting API 호출"""
         print(f"  📊 Aggregated Revenue 데이터 조회")
@@ -147,29 +148,42 @@ class AxonDataCollector:
                 print(f"    ⚠️ 데이터 없음")
                 return None
             
-            # 🔥 중요: 컬럼명 소문자 변환
+            # 컬럼명 소문자 변환
             df.columns = df.columns.str.lower()
+            print(f"    📋 소문자 변환 후: {df.columns.tolist()}")
             
             # 컬럼 rename
             df.rename(columns={'day': 'report_date'}, inplace=True)
+            print(f"    📋 rename 후: {df.columns.tolist()}")
+            
+            # 필수 컬럼 추가
             df['report_hour'] = None
             df['loaded_at'] = datetime.utcnow()
             
-            # 타입 변환
-            df['report_date'] = pd.to_datetime(df['report_date']).dt.date
-            df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce').fillna(0).astype(int)
-            df['estimated_revenue'] = pd.to_numeric(df['estimated_revenue'], errors='coerce').fillna(0).astype(float)
-            df['ecpm'] = pd.to_numeric(df['ecpm'], errors='coerce').fillna(0).astype(float)
+            # 안전한 타입 변환
+            if 'report_date' in df.columns:
+                df['report_date'] = pd.to_datetime(df['report_date']).dt.date
+            else:
+                print(f"    ❌ 'report_date' 컬럼 없음!")
+                return None
+            
+            if 'impressions' in df.columns:
+                df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce').fillna(0).astype(int)
+            if 'estimated_revenue' in df.columns:
+                df['estimated_revenue'] = pd.to_numeric(df['estimated_revenue'], errors='coerce').fillna(0).astype(float)
+            if 'ecpm' in df.columns:
+                df['ecpm'] = pd.to_numeric(df['ecpm'], errors='coerce').fillna(0).astype(float)
             
             print(f"    ✅ {len(df)}개 집계 레코드")
+            print(f"    📋 최종 컬럼: {df.columns.tolist()}")
             return df
             
-        except requests.exceptions.HTTPError as e:
-            print(f"    ❌ HTTP 에러: {e}")
-            return None
         except Exception as e:
             print(f"    ❌ 에러: {str(e)}")
+            import traceback
+            print(f"    📝 상세: {traceback.format_exc()}")
             return None
+
 
 
     def load_to_bigquery(self, df, table_name, date, force_update=False):

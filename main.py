@@ -258,8 +258,7 @@ class AxonDataCollector:
             'start': date,
             'end': date,
             'columns': 'day,application,package_name,store_id,platform,country,device_type,'
-                    'ad_format,ad_unit_waterfall_name,max_ad_unit_test,'
-                    'max_placement,has_idfa,impressions,estimated_revenue,ecpm,requests',
+                    'ad_format,has_idfa,impressions,estimated_revenue,ecpm,requests',
             'format': 'csv',
             'not_zero': 1
         }

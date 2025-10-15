@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import os
 import json
 from datetime import datetime, timedelta
@@ -653,6 +653,45 @@ def force_update():
         collector = AxonDataCollector()
         collector.collect_daily_data(force_update=True)
         return jsonify({'status': 'success', 'message': '데이터 강제 업데이트 완료'}), 200
+    except Exception as e:
+        print(f"❌ 에러: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/collect-date', methods=['POST'])
+def collect_specific_date():
+    """특정 날짜 데이터 수집"""
+    try:
+        data = request.get_json()
+
+        if not data or 'date' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': 'date 필드가 필요합니다 (형식: YYYY-MM-DD)'
+            }), 400
+
+        target_date = data.get('date')
+        force_update = data.get('force_update', False)
+
+        # 날짜 형식 검증
+        try:
+            datetime.strptime(target_date, '%Y-%m-%d')
+        except ValueError:
+            return jsonify({
+                'status': 'error',
+                'message': '날짜 형식이 올바르지 않습니다 (형식: YYYY-MM-DD)'
+            }), 400
+
+        print(f"📅 특정 날짜 데이터 수집: {target_date} (force_update={force_update})")
+        collector = AxonDataCollector()
+        stats = collector.collect_daily_data(date=target_date, force_update=force_update)
+
+        return jsonify({
+            'status': 'success',
+            'message': f'{target_date} 데이터 수집 완료',
+            'date': target_date,
+            'stats': stats
+        }), 200
+
     except Exception as e:
         print(f"❌ 에러: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500

@@ -48,13 +48,33 @@ class AxonDataCollector:
         except json.JSONDecodeError as e:
             raise ValueError(f"❌ APPS_CONFIG JSON 파싱 실패: {str(e)}")
     
-    def check_data_exists(self, table_name, date):
-        """특정 날짜 데이터 존재 여부 확인"""
-        query = f"""
-        SELECT COUNT(*) as cnt
-        FROM `{self.project_id}.{self.dataset_id}.{table_name}`
-        WHERE report_date = '{date}'
+    def check_data_exists(self, table_name, date, application=None, platform=None):
         """
+        특정 날짜 데이터 존재 여부 확인
+
+        Args:
+            table_name: 테이블명
+            date: 날짜
+            application: 앱 패키지명 (user_level_ad_revenue만 해당)
+            platform: 플랫폼 (user_level_ad_revenue만 해당)
+        """
+        # user_level_ad_revenue는 앱별로 확인
+        if table_name == 'user_level_ad_revenue' and application and platform:
+            query = f"""
+            SELECT COUNT(*) as cnt
+            FROM `{self.project_id}.{self.dataset_id}.{table_name}`
+            WHERE report_date = '{date}'
+              AND application = '{application}'
+              AND platform = '{platform}'
+            """
+        else:
+            # revenue_reporting은 날짜별로 확인
+            query = f"""
+            SELECT COUNT(*) as cnt
+            FROM `{self.project_id}.{self.dataset_id}.{table_name}`
+            WHERE report_date = '{date}'
+            """
+
         try:
             result = self.bq_client.query(query).result()
             count = list(result)[0].cnt
@@ -238,7 +258,7 @@ class AxonDataCollector:
             'start': date,
             'end': date,
             'columns': 'day,application,package_name,store_id,platform,country,device_type,'
-                    'ad_format,ad_unit_waterfall_name,max_ad_unit_id,max_ad_unit_test,'
+                    'ad_format,ad_unit_waterfall_name,max_ad_unit_test,'
                     'max_placement,has_idfa,impressions,estimated_revenue,ecpm,requests',
             'format': 'csv',
             'not_zero': 1
@@ -419,11 +439,14 @@ class AxonDataCollector:
 
         table_ref = f"{self.project_id}.{self.dataset_id}.{table_name}"
 
-        # 데이터 존재 여부 확인
-        exists = self.check_data_exists(table_name, date)
+        # 데이터 존재 여부 확인 (user_level_ad_revenue는 앱별로 체크)
+        exists = self.check_data_exists(table_name, date, application, platform)
 
         if exists and not force_update:
-            print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} → {table_name}")
+            if table_name == 'user_level_ad_revenue' and application and platform:
+                print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} / {application} ({platform}) → {table_name}")
+            else:
+                print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} → {table_name}")
             return
 
         if exists and force_update:

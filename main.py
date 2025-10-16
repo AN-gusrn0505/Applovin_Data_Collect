@@ -11,7 +11,7 @@ import time
 app = Flask(__name__)
 
 # 버전 관리
-VERSION = "v1.2.2"  # backfill force_update 지원 추가
+VERSION = "v1.3.0"  # Revenue Reporting Basic 제거, Network Detail만 수집
 
 class AxonDataCollector:
     def __init__(self):
@@ -265,86 +265,6 @@ class AxonDataCollector:
             return None
 
 
-    def fetch_revenue_reporting_basic(self, date):
-        """Revenue Reporting API 호출 - Basic (requests 포함)"""
-
-        url = "https://r.applovin.com/maxReport"
-        params = {
-            'api_key': self.api_key,
-            'start': date,
-            'end': date,
-            'columns': 'day,application,package_name,store_id,platform,country,device_type,'
-                    'ad_format,has_idfa,impressions,estimated_revenue,ecpm,requests',
-            'format': 'csv',
-            'not_zero': 1
-        }
-
-        try:
-            response = requests.get(url, params=params, timeout=60)
-
-            # HTTP 상태 코드별 처리
-            if response.status_code == 429:
-                print(f"    ⚠️ Rate limit 초과 (429) - 60초 대기 후 재시도")
-                time.sleep(60)
-                response = requests.get(url, params=params, timeout=60)
-            elif response.status_code == 401:
-                print(f"    ❌ 인증 실패 (401) - API 키 확인 필요")
-                return None
-            elif response.status_code == 403:
-                print(f"    ❌ 접근 거부 (403) - 권한 확인 필요")
-                return None
-            elif response.status_code >= 500:
-                print(f"    ⚠️ 서버 에러 ({response.status_code}) - 30초 대기 후 재시도")
-                time.sleep(30)
-                response = requests.get(url, params=params, timeout=60)
-
-            response.raise_for_status()
-
-            df = pd.read_csv(StringIO(response.text))
-
-            if len(df) == 0:
-                return None
-
-            # 컬럼명 소문자 변환
-            df.columns = df.columns.str.lower()
-
-            # 컬럼 rename
-            df.rename(columns={'day': 'report_date'}, inplace=True)
-
-            # 필수 컬럼 추가
-            df['query_type'] = 'basic'
-            df['loaded_at'] = datetime.utcnow()
-
-            # 안전한 타입 변환
-            if 'report_date' in df.columns:
-                df['report_date'] = pd.to_datetime(df['report_date']).dt.date
-            else:
-                print(f"    ❌ 'report_date' 컬럼 없음!")
-                return None
-
-            # 숫자형 컬럼 변환
-            if 'impressions' in df.columns:
-                df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce').fillna(0).astype(int)
-            if 'estimated_revenue' in df.columns:
-                df['estimated_revenue'] = pd.to_numeric(df['estimated_revenue'], errors='coerce').fillna(0).astype(float)
-            if 'ecpm' in df.columns:
-                df['ecpm'] = pd.to_numeric(df['ecpm'], errors='coerce').fillna(0).astype(float)
-            if 'requests' in df.columns:
-                df['requests'] = pd.to_numeric(df['requests'], errors='coerce').fillna(0).astype(int)
-
-            # boolean 컬럼 변환
-            if 'has_idfa' in df.columns:
-                df['has_idfa'] = df['has_idfa'].astype(str).str.lower().isin(['true', '1', 'yes'])
-            if 'max_ad_unit_test' in df.columns:
-                df['max_ad_unit_test'] = df['max_ad_unit_test'].astype(str).str.lower().isin(['true', '1', 'yes'])
-
-            print(f"    ✅ Basic {len(df):,}개")
-            return df
-
-        except Exception as e:
-            print(f"    ❌ Revenue Basic 에러: {str(e)}")
-            return None
-
     def fetch_revenue_reporting_network(self, date):
         """Revenue Reporting API 호출 - Network Detail (attempts, responses, fill_rate 포함)"""
 
@@ -500,7 +420,6 @@ class AxonDataCollector:
             'user_level_success': 0,
             'user_level_failed': 0,
             'user_level_no_data': 0,
-            'revenue_basic_success': False,
             'revenue_network_success': False
         }
 
@@ -531,24 +450,15 @@ class AxonDataCollector:
                 print(f"    ❌ {app['package']} ({app['platform']}) 처리 실패: {str(e)}")
                 stats['user_level_failed'] += 1
 
-        # Revenue Reporting - Basic
-        print(f"\n2️⃣ Revenue Reporting 수집")
-        try:
-            df_basic = self.fetch_revenue_reporting_basic(date)
-            if df_basic is not None:
-                self.load_to_bigquery(df_basic, 'revenue_reporting', date, force_update, query_type='basic')
-                stats['revenue_basic_success'] = True
-        except Exception as e:
-            print(f"    ❌ Revenue Reporting (Basic) 처리 실패: {str(e)}")
-
-        # Revenue Reporting - Network Detail
+        # Revenue Reporting - Network Detail만 수집
+        print(f"\n2️⃣ Revenue Reporting 수집 (Network Detail)")
         try:
             df_network = self.fetch_revenue_reporting_network(date)
             if df_network is not None:
                 self.load_to_bigquery(df_network, 'revenue_reporting', date, force_update, query_type='network_detail')
                 stats['revenue_network_success'] = True
         except Exception as e:
-            print(f"    ❌ Revenue Reporting (Network) 처리 실패: {str(e)}")
+            print(f"    ❌ Revenue Reporting 처리 실패: {str(e)}")
 
         # 결과 출력
         print(f"\n{'='*50}")
@@ -556,8 +466,7 @@ class AxonDataCollector:
         print(f"📊 User-Level: 성공 {stats['user_level_success']}, "
               f"데이터없음 {stats['user_level_no_data']}, "
               f"실패 {stats['user_level_failed']}")
-        print(f"📊 Revenue Reporting: Basic {'✅' if stats['revenue_basic_success'] else '❌'}, "
-              f"Network {'✅' if stats['revenue_network_success'] else '❌'}")
+        print(f"📊 Revenue Reporting: {'✅' if stats['revenue_network_success'] else '❌'}")
         print(f"{'='*50}\n")
 
         return stats
@@ -600,7 +509,6 @@ class AxonDataCollector:
 
                 # 성공 여부 판단
                 if stats and (stats.get('user_level_success', 0) > 0 or
-                             stats.get('revenue_basic_success', False) or
                              stats.get('revenue_network_success', False)):
                     total_stats['success_days'] += 1
                 else:

@@ -11,7 +11,7 @@ import time
 app = Flask(__name__)
 
 # 버전 관리
-VERSION = "v1.2.0"  # 배포 확인용
+VERSION = "v1.2.1"  # 배포 확인용 - 자동 수집 비활성화
 
 class AxonDataCollector:
     def __init__(self):
@@ -623,14 +623,25 @@ class AxonDataCollector:
 # Cloud Run 엔트리포인트
 @app.route('/', methods=['GET', 'POST'])
 def run_collection():
-    """Cloud Scheduler에서 호출 (일일 업데이트)"""
+    """Cloud Scheduler에서 호출 (일일 업데이트) - 임시 비활성화"""
+    print(f"⚠️ 자동 수집 비활성화됨 (버전: {VERSION})")
+    print(f"💡 수동 수집을 사용하세요: /collect-date")
+    return jsonify({
+        'status': 'disabled',
+        'message': '자동 수집이 비활성화되었습니다. /collect-date를 사용하세요.',
+        'version': VERSION
+    }), 200
+
+@app.route('/auto-collect', methods=['GET', 'POST'])
+def auto_collection():
+    """Cloud Scheduler용 엔드포인트 (수동 활성화 필요)"""
     try:
         print(f"📥 일일 데이터 수집 시작 (버전: {VERSION})")
         collector = AxonDataCollector()
-        
+
         # 어제 데이터만 수집 (중복 체크 포함)
         collector.collect_daily_data(force_update=False)
-        
+
         return jsonify({'status': 'success', 'time': datetime.utcnow().isoformat()}), 200
     except Exception as e:
         print(f"❌ 에러: {str(e)}")

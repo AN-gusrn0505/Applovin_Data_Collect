@@ -11,7 +11,7 @@ import time
 app = Flask(__name__)
 
 # 버전 관리
-VERSION = "v1.2.1"  # 배포 확인용 - 자동 수집 비활성화
+VERSION = "v1.2.2"  # backfill force_update 지원 추가
 
 class AxonDataCollector:
     def __init__(self):
@@ -562,18 +562,20 @@ class AxonDataCollector:
 
         return stats
     
-    def backfill_data(self, days=45):
+    def backfill_data(self, days=45, force_update=False):
         """
         과거 데이터 초기 적재 (45일)
 
         Args:
             days: 과거 며칠치 데이터 수집
+            force_update: 기존 데이터 있어도 덮어쓰기
 
         Returns:
             dict: 전체 수집 결과 통계
         """
+        mode = "🔄 재수집" if force_update else "🔥 초기 데이터 적재"
         print(f"\n{'🔥'*25}")
-        print(f"🔥 초기 데이터 적재: 과거 {days}일")
+        print(f"{mode}: 과거 {days}일")
         print(f"{'🔥'*25}\n")
 
         today = datetime.utcnow()
@@ -594,7 +596,7 @@ class AxonDataCollector:
                 progress = ((days - i + 1) / days) * 100
                 print(f"📈 진행률: {progress:.1f}% ({days - i + 1}/{days})")
 
-                stats = self.collect_daily_data(date=target_date, force_update=False)
+                stats = self.collect_daily_data(date=target_date, force_update=force_update)
 
                 # 성공 여부 판단
                 if stats and (stats.get('user_level_success', 0) > 0 or
@@ -651,10 +653,14 @@ def auto_collection():
 def backfill():
     """초기 45일 데이터 적재 (수동 호출용)"""
     try:
-        print(f"🔥 초기 데이터 적재 시작 (버전: {VERSION})")
+        data = request.get_json() or {}
+        days = data.get('days', 45)
+        force_update = data.get('force_update', False)
+
+        print(f"🔥 초기 데이터 적재 시작 (버전: {VERSION}, days={days}, force_update={force_update})")
         collector = AxonDataCollector()
-        collector.backfill_data(days=45)
-        return jsonify({'status': 'success', 'message': '45일 데이터 적재 완료'}), 200
+        collector.backfill_data(days=days, force_update=force_update)
+        return jsonify({'status': 'success', 'message': f'{days}일 데이터 적재 완료'}), 200
     except Exception as e:
         print(f"❌ 에러: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500

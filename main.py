@@ -10,6 +10,9 @@ import time
 
 app = Flask(__name__)
 
+# 버전 관리
+VERSION = "v1.2.0"  # 배포 확인용
+
 class AxonDataCollector:
     def __init__(self):
         """환경변수 로드 및 초기화"""
@@ -480,6 +483,7 @@ class AxonDataCollector:
 
         mode = "🔄 재수집" if force_update else "📥 수집"
         print(f"\n{'='*50}")
+        print(f"🚀 버전: {VERSION}")
         print(f"{mode} 시작: {date}")
         print(f"{'='*50}")
 
@@ -621,7 +625,7 @@ class AxonDataCollector:
 def run_collection():
     """Cloud Scheduler에서 호출 (일일 업데이트)"""
     try:
-        print("📥 일일 데이터 수집 시작")
+        print(f"📥 일일 데이터 수집 시작 (버전: {VERSION})")
         collector = AxonDataCollector()
         
         # 어제 데이터만 수집 (중복 체크 포함)
@@ -636,7 +640,7 @@ def run_collection():
 def backfill():
     """초기 45일 데이터 적재 (수동 호출용)"""
     try:
-        print("🔥 초기 데이터 적재 시작")
+        print(f"🔥 초기 데이터 적재 시작 (버전: {VERSION})")
         collector = AxonDataCollector()
         collector.backfill_data(days=45)
         return jsonify({'status': 'success', 'message': '45일 데이터 적재 완료'}), 200
@@ -648,7 +652,7 @@ def backfill():
 def force_update():
     """강제 업데이트 (어제 데이터 재수집)"""
     try:
-        print("🔄 강제 업데이트 시작")
+        print(f"🔄 강제 업데이트 시작 (버전: {VERSION})")
         collector = AxonDataCollector()
         collector.collect_daily_data(force_update=True)
         return jsonify({'status': 'success', 'message': '데이터 강제 업데이트 완료'}), 200
@@ -680,7 +684,7 @@ def collect_specific_date():
                 'message': '날짜 형식이 올바르지 않습니다 (형식: YYYY-MM-DD)'
             }), 400
 
-        print(f"📅 특정 날짜 데이터 수집: {target_date} (force_update={force_update})")
+        print(f"📅 특정 날짜 데이터 수집: {target_date} (force_update={force_update}, 버전: {VERSION})")
         collector = AxonDataCollector()
         stats = collector.collect_daily_data(date=target_date, force_update=force_update)
 

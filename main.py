@@ -144,8 +144,7 @@ class AxonDataCollector:
             application: 패키지명
             aggregated: False=노출별(추천), True=유저별 집계
         """
-        data_type_str = "유저별 집계" if aggregated else "노출별"
-        print(f"  📥 User-Level ({data_type_str}) 데이터 조회: {application} ({platform})")
+        # 로그 축약: API 호출 시작 로그 제거
 
         url = "https://r.applovin.com/max/userAdRevenueReport"
         params = {
@@ -161,8 +160,7 @@ class AxonDataCollector:
 
             # HTTP 상태 코드별 처리
             if response.status_code == 404:
-                print(f"    ⚠️ 데이터 없음 (404) - 해당 날짜에 데이터가 생성되지 않았음")
-                return None
+                return None  # 데이터 없음 (정상)
             elif response.status_code == 429:
                 print(f"    ⚠️ Rate limit 초과 (429) - 60초 대기 후 재시도")
                 time.sleep(60)
@@ -192,8 +190,7 @@ class AxonDataCollector:
             elif data.get('fb_estimated_revenue_url'):
                 data_source = 'fb_estimated_revenue_url'
             else:
-                print(f"    ⚠️ CSV URL 없음 (정상 - 데이터 없는 날)")
-                return None
+                return None  # CSV URL 없음
 
             # S3 URL은 1시간 내 만료되므로 즉시 다운로드
             csv_response = requests.get(csv_url, timeout=120)
@@ -202,8 +199,7 @@ class AxonDataCollector:
             df = pd.read_csv(StringIO(csv_response.text))
 
             if len(df) == 0:
-                print(f"    ⚠️ 데이터 없음 (정상 - 신규 앱이거나 트래픽 없음)")
-                return None
+                return None  # 데이터 없음
 
             # 컬럼명 정규화 (대소문자, 공백 통일)
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
@@ -258,20 +254,16 @@ class AxonDataCollector:
             # pandas의 NaN을 None으로 변환 (BigQuery는 None을 NULL로 처리)
             df = df.where(pd.notnull(df), None)
 
-            record_count = len(df)
-            print(f"    ✅ {record_count}개 레코드 ({data_source})")
+            print(f"    ✅ {len(df):,}개 레코드")
             return df
 
         except Exception as e:
-            print(f"    ❌ 에러: {str(e)}")
-            import traceback
-            print(f"    📝 상세: {traceback.format_exc()}")
+            print(f"    ❌ User-Level 에러: {str(e)}")
             return None
 
 
     def fetch_revenue_reporting_basic(self, date):
         """Revenue Reporting API 호출 - Basic (requests 포함)"""
-        print(f"  📊 Revenue Reporting (Basic) 데이터 조회")
 
         url = "https://r.applovin.com/maxReport"
         params = {
@@ -308,7 +300,6 @@ class AxonDataCollector:
             df = pd.read_csv(StringIO(response.text))
 
             if len(df) == 0:
-                print(f"    ⚠️ 데이터 없음")
                 return None
 
             # 컬럼명 소문자 변환
@@ -344,18 +335,15 @@ class AxonDataCollector:
             if 'max_ad_unit_test' in df.columns:
                 df['max_ad_unit_test'] = df['max_ad_unit_test'].astype(str).str.lower().isin(['true', '1', 'yes'])
 
-            print(f"    ✅ {len(df)}개 Basic 레코드")
+            print(f"    ✅ Basic {len(df):,}개")
             return df
 
         except Exception as e:
-            print(f"    ❌ 에러: {str(e)}")
-            import traceback
-            print(f"    📝 상세: {traceback.format_exc()}")
+            print(f"    ❌ Revenue Basic 에러: {str(e)}")
             return None
 
     def fetch_revenue_reporting_network(self, date):
         """Revenue Reporting API 호출 - Network Detail (attempts, responses, fill_rate 포함)"""
-        print(f"  📊 Revenue Reporting (Network Detail) 데이터 조회")
 
         url = "https://r.applovin.com/maxReport"
         params = {
@@ -393,7 +381,6 @@ class AxonDataCollector:
             df = pd.read_csv(StringIO(response.text))
 
             if len(df) == 0:
-                print(f"    ⚠️ 데이터 없음")
                 return None
 
             # 컬럼명 소문자 변환
@@ -431,13 +418,11 @@ class AxonDataCollector:
             if 'has_idfa' in df.columns:
                 df['has_idfa'] = df['has_idfa'].astype(str).str.lower().isin(['true', '1', 'yes'])
 
-            print(f"    ✅ {len(df)}개 Network Detail 레코드")
+            print(f"    ✅ Network {len(df):,}개")
             return df
 
         except Exception as e:
-            print(f"    ❌ 에러: {str(e)}")
-            import traceback
-            print(f"    📝 상세: {traceback.format_exc()}")
+            print(f"    ❌ Revenue Network 에러: {str(e)}")
             return None
 
 
@@ -464,19 +449,9 @@ class AxonDataCollector:
         exists = self.check_data_exists(table_name, date, application, platform, query_type)
 
         if exists and not force_update:
-            if table_name == 'user_level_ad_revenue' and application and platform:
-                print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} / {application} ({platform}) → {table_name}")
-            elif table_name == 'revenue_reporting' and query_type:
-                print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} / {query_type} → {table_name}")
-            else:
-                print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} → {table_name}")
-            return
+            return  # 이미 존재, 스킵
 
         if exists and force_update:
-            if query_type:
-                print(f"    🔄 데이터 업데이트 모드: {date} / {query_type}")
-            else:
-                print(f"    🔄 데이터 업데이트 모드: {date}")
             self.delete_date_data(table_name, date, application, platform, query_type)
 
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
@@ -484,14 +459,9 @@ class AxonDataCollector:
         try:
             job = self.bq_client.load_table_from_dataframe(df, table_ref, job_config=job_config)
             job.result()
-            if query_type:
-                print(f"    💾 BigQuery 적재 완료: {len(df)}개 ({query_type}) → {table_name}")
-            else:
-                print(f"    💾 BigQuery 적재 완료: {len(df)}개 → {table_name}")
+            print(f"    💾 적재 완료: {len(df):,}개")
         except Exception as e:
-            print(f"    ❌ BigQuery 적재 실패: {str(e)}")
-            import traceback
-            print(f"    📝 상세: {traceback.format_exc()}")
+            print(f"    ❌ 적재 실패: {str(e)}")
     
     def collect_daily_data(self, date=None, apps=None, force_update=False):
         """
@@ -508,10 +478,9 @@ class AxonDataCollector:
         if date is None:
             date = (datetime.utcnow() - timedelta(days=1)).strftime('%Y-%m-%d')
 
+        mode = "🔄 재수집" if force_update else "📥 수집"
         print(f"\n{'='*50}")
-        print(f"📅 {date} 데이터 수집 시작")
-        if force_update:
-            print(f"🔄 업데이트 모드: 기존 데이터 덮어쓰기")
+        print(f"{mode} 시작: {date}")
         print(f"{'='*50}")
 
         # 환경변수에서 앱 목록 가져오기

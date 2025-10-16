@@ -11,7 +11,7 @@ import time
 app = Flask(__name__)
 
 # 버전 관리
-VERSION = "v1.3.0"  # Revenue Reporting Basic 제거, Network Detail만 수집
+VERSION = "v1.4.0"  # 최근 3일 자동 재검증 기능 추가 (AppLovin 데이터 변경 대비)
 
 class AxonDataCollector:
     def __init__(self):
@@ -386,7 +386,7 @@ class AxonDataCollector:
         except Exception as e:
             print(f"    ❌ 적재 실패: {str(e)}")
     
-    def collect_daily_data(self, date=None, apps=None, force_update=False):
+    def collect_daily_data(self, date=None, apps=None, force_update=False, validate_recent_days=0):
         """
         전체 데이터 수집 파이프라인
 
@@ -394,6 +394,7 @@ class AxonDataCollector:
             date: 수집 날짜 (기본값: 어제)
             apps: 앱 목록 (기본값: 환경변수)
             force_update: 기존 데이터 있어도 업데이트
+            validate_recent_days: 최근 N일 데이터도 재검증 (0=검증 안 함)
 
         Returns:
             dict: 수집 결과 통계
@@ -405,6 +406,8 @@ class AxonDataCollector:
         print(f"\n{'='*50}")
         print(f"🚀 버전: {VERSION}")
         print(f"{mode} 시작: {date}")
+        if validate_recent_days > 0:
+            print(f"🔍 최근 {validate_recent_days}일 재검증 포함")
         print(f"{'='*50}")
 
         # 환경변수에서 앱 목록 가져오기
@@ -460,6 +463,54 @@ class AxonDataCollector:
         except Exception as e:
             print(f"    ❌ Revenue Reporting 처리 실패: {str(e)}")
 
+        # 최근 N일 재검증 (데이터 변경 대비)
+        if validate_recent_days > 0:
+            print(f"\n3️⃣ 최근 {validate_recent_days}일 재검증")
+            today = datetime.strptime(date, '%Y-%m-%d')
+
+            for i in range(1, validate_recent_days + 1):
+                validate_date = (today - timedelta(days=i)).strftime('%Y-%m-%d')
+                print(f"\n  🔍 {validate_date} 재검증 중...")
+
+                try:
+                    # User-Level 재검증
+                    for app in apps:
+                        try:
+                            df = self.fetch_user_level_data(
+                                date=validate_date,
+                                platform=app['platform'],
+                                application=app['package'],
+                                aggregated=False
+                            )
+                            if df is not None:
+                                self.load_to_bigquery(
+                                    df,
+                                    'user_level_ad_revenue',
+                                    validate_date,
+                                    force_update=True,  # 재검증은 항상 업데이트
+                                    application=app['package'],
+                                    platform=app['platform']
+                                )
+                        except Exception as e:
+                            print(f"    ⚠️ {app['package']} 재검증 실패: {str(e)}")
+
+                    # Revenue Reporting 재검증
+                    try:
+                        df_network = self.fetch_revenue_reporting_network(validate_date)
+                        if df_network is not None:
+                            self.load_to_bigquery(
+                                df_network,
+                                'revenue_reporting',
+                                validate_date,
+                                force_update=True,  # 재검증은 항상 업데이트
+                                query_type='network_detail'
+                            )
+                    except Exception as e:
+                        print(f"    ⚠️ Revenue Reporting 재검증 실패: {str(e)}")
+
+                except Exception as e:
+                    print(f"  ❌ {validate_date} 재검증 중 오류: {str(e)}")
+
         # 결과 출력
         print(f"\n{'='*50}")
         print(f"✅ {date} 데이터 수집 완료!")
@@ -467,6 +518,8 @@ class AxonDataCollector:
               f"데이터없음 {stats['user_level_no_data']}, "
               f"실패 {stats['user_level_failed']}")
         print(f"📊 Revenue Reporting: {'✅' if stats['revenue_network_success'] else '❌'}")
+        if validate_recent_days > 0:
+            print(f"🔍 최근 {validate_recent_days}일 재검증 완료")
         print(f"{'='*50}\n")
 
         return stats
@@ -549,8 +602,8 @@ def auto_collection():
         print(f"📥 일일 데이터 수집 시작 (버전: {VERSION})")
         collector = AxonDataCollector()
 
-        # 어제 데이터만 수집 (중복 체크 포함)
-        collector.collect_daily_data(force_update=False)
+        # 어제 데이터 수집 + 최근 3일 재검증 (AppLovin 데이터 변경 대비)
+        collector.collect_daily_data(force_update=False, validate_recent_days=3)
 
         return jsonify({'status': 'success', 'time': datetime.utcnow().isoformat()}), 200
     except Exception as e:

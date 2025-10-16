@@ -48,7 +48,7 @@ class AxonDataCollector:
         except json.JSONDecodeError as e:
             raise ValueError(f"❌ APPS_CONFIG JSON 파싱 실패: {str(e)}")
     
-    def check_data_exists(self, table_name, date, application=None, platform=None):
+    def check_data_exists(self, table_name, date, application=None, platform=None, query_type=None):
         """
         특정 날짜 데이터 존재 여부 확인
 
@@ -57,6 +57,7 @@ class AxonDataCollector:
             date: 날짜
             application: 앱 패키지명 (user_level_ad_revenue만 해당)
             platform: 플랫폼 (user_level_ad_revenue만 해당)
+            query_type: 쿼리 타입 (revenue_reporting만 해당: basic, network_detail)
         """
         # user_level_ad_revenue는 앱별로 확인
         if table_name == 'user_level_ad_revenue' and application and platform:
@@ -67,8 +68,16 @@ class AxonDataCollector:
               AND application = '{application}'
               AND platform = '{platform}'
             """
+        # revenue_reporting은 query_type별로 확인 (같은 날짜에 basic과 network_detail이 공존)
+        elif table_name == 'revenue_reporting' and query_type:
+            query = f"""
+            SELECT COUNT(*) as cnt
+            FROM `{self.project_id}.{self.dataset_id}.{table_name}`
+            WHERE report_date = '{date}'
+              AND query_type = '{query_type}'
+            """
         else:
-            # revenue_reporting은 날짜별로 확인
+            # 기타 테이블은 날짜별로 확인
             query = f"""
             SELECT COUNT(*) as cnt
             FROM `{self.project_id}.{self.dataset_id}.{table_name}`
@@ -83,7 +92,7 @@ class AxonDataCollector:
             print(f"    ⚠️ 테이블 확인 실패 ({table_name}): {str(e)}")
             return False
     
-    def delete_date_data(self, table_name, date, application=None, platform=None):
+    def delete_date_data(self, table_name, date, application=None, platform=None, query_type=None):
         """
         특정 날짜 데이터 삭제 (업데이트 전)
 
@@ -92,6 +101,7 @@ class AxonDataCollector:
             date: 날짜
             application: 앱 패키지명 (user_level_ad_revenue만 해당)
             platform: 플랫폼 (user_level_ad_revenue만 해당)
+            query_type: 쿼리 타입 (revenue_reporting만 해당)
         """
         # user_level_ad_revenue는 앱별로 삭제 (같은 날짜의 다른 앱 보호)
         if table_name == 'user_level_ad_revenue' and application and platform:
@@ -102,8 +112,16 @@ class AxonDataCollector:
               AND platform = '{platform}'
             """
             print(f"    🗑️ 기존 데이터 삭제: {date} / {application} ({platform})")
+        # revenue_reporting은 query_type별로 삭제 (같은 날짜의 다른 타입 보호)
+        elif table_name == 'revenue_reporting' and query_type:
+            query = f"""
+            DELETE FROM `{self.project_id}.{self.dataset_id}.{table_name}`
+            WHERE report_date = '{date}'
+              AND query_type = '{query_type}'
+            """
+            print(f"    🗑️ 기존 데이터 삭제: {date} / {query_type}")
         else:
-            # revenue_reporting은 날짜별로 삭제
+            # 기타 테이블은 날짜별로 삭제
             query = f"""
             DELETE FROM `{self.project_id}.{self.dataset_id}.{table_name}`
             WHERE report_date = '{date}'
@@ -142,7 +160,10 @@ class AxonDataCollector:
             response = requests.get(url, params=params, timeout=60)
 
             # HTTP 상태 코드별 처리
-            if response.status_code == 429:
+            if response.status_code == 404:
+                print(f"    ⚠️ 데이터 없음 (404) - 해당 날짜에 데이터가 생성되지 않았음")
+                return None
+            elif response.status_code == 429:
                 print(f"    ⚠️ Rate limit 초과 (429) - 60초 대기 후 재시도")
                 time.sleep(60)
                 response = requests.get(url, params=params, timeout=60)
@@ -421,7 +442,7 @@ class AxonDataCollector:
 
 
 
-    def load_to_bigquery(self, df, table_name, date, force_update=False, application=None, platform=None):
+    def load_to_bigquery(self, df, table_name, date, force_update=False, application=None, platform=None, query_type=None):
         """
         DataFrame을 BigQuery에 적재
 
@@ -432,32 +453,41 @@ class AxonDataCollector:
             force_update: True면 기존 데이터 삭제 후 재적재
             application: 앱 패키지명 (user_level_ad_revenue용)
             platform: 플랫폼 (user_level_ad_revenue용)
+            query_type: 쿼리 타입 (revenue_reporting용: basic, network_detail)
         """
         if df is None or len(df) == 0:
             return
 
         table_ref = f"{self.project_id}.{self.dataset_id}.{table_name}"
 
-        # 데이터 존재 여부 확인 (user_level_ad_revenue는 앱별로 체크)
-        exists = self.check_data_exists(table_name, date, application, platform)
+        # 데이터 존재 여부 확인 (테이블별 세밀한 체크)
+        exists = self.check_data_exists(table_name, date, application, platform, query_type)
 
         if exists and not force_update:
             if table_name == 'user_level_ad_revenue' and application and platform:
                 print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} / {application} ({platform}) → {table_name}")
+            elif table_name == 'revenue_reporting' and query_type:
+                print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} / {query_type} → {table_name}")
             else:
                 print(f"    ⏭️ 이미 데이터 존재, 스킵: {date} → {table_name}")
             return
 
         if exists and force_update:
-            print(f"    🔄 데이터 업데이트 모드: {date}")
-            self.delete_date_data(table_name, date, application, platform)
+            if query_type:
+                print(f"    🔄 데이터 업데이트 모드: {date} / {query_type}")
+            else:
+                print(f"    🔄 데이터 업데이트 모드: {date}")
+            self.delete_date_data(table_name, date, application, platform, query_type)
 
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
 
         try:
             job = self.bq_client.load_table_from_dataframe(df, table_ref, job_config=job_config)
             job.result()
-            print(f"    💾 BigQuery 적재 완료: {len(df)}개 → {table_name}")
+            if query_type:
+                print(f"    💾 BigQuery 적재 완료: {len(df)}개 ({query_type}) → {table_name}")
+            else:
+                print(f"    💾 BigQuery 적재 완료: {len(df)}개 → {table_name}")
         except Exception as e:
             print(f"    ❌ BigQuery 적재 실패: {str(e)}")
             import traceback
@@ -533,7 +563,7 @@ class AxonDataCollector:
         try:
             df_basic = self.fetch_revenue_reporting_basic(date)
             if df_basic is not None:
-                self.load_to_bigquery(df_basic, 'revenue_reporting', date, force_update)
+                self.load_to_bigquery(df_basic, 'revenue_reporting', date, force_update, query_type='basic')
                 stats['revenue_basic_success'] = True
         except Exception as e:
             print(f"    ❌ Revenue Reporting (Basic) 처리 실패: {str(e)}")
@@ -542,7 +572,7 @@ class AxonDataCollector:
         try:
             df_network = self.fetch_revenue_reporting_network(date)
             if df_network is not None:
-                self.load_to_bigquery(df_network, 'revenue_reporting', date, force_update)
+                self.load_to_bigquery(df_network, 'revenue_reporting', date, force_update, query_type='network_detail')
                 stats['revenue_network_success'] = True
         except Exception as e:
             print(f"    ❌ Revenue Reporting (Network) 처리 실패: {str(e)}")
